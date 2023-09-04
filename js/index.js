@@ -58,13 +58,13 @@ class User {
     constructor({ name, character, isComp, isDirectedRight, fireImage }) {
         this.name = name;
         this.character = character;
-        this.skins.default = `/assets/characters/${this.character}/default.png`;
-        this.skins.kicking = `/assets/characters/${this.character}/kicking.png`;
-        this.imgs.kicked = `/assets/kicked.png`;
-        this.imgs.fire = `/assets/fire/${fireImage}`;
-        this.sounds.kicking = `/assets/characters/${this.character}/kicking.m4a`;
-        this.sounds.kicked = `/assets/kicked.mp3`;
-        this.sounds.jumping = `/assets/characters/${this.character}/jumping.m4a`;
+        this.skins.default = `./assets/characters/${this.character}/default.png`;
+        this.skins.kicking = `./assets/characters/${this.character}/kicking.png`;
+        this.imgs.kicked = `./assets/kicked.png`;
+        this.imgs.fire = `./assets/fire/${fireImage}`;
+        this.sounds.kicking = `./assets/characters/${this.character}/kicking.m4a`;
+        this.sounds.kicked = `./assets/kicked.mp3`;
+        this.sounds.jumping = `./assets/characters/${this.character}/jumping.m4a`;
         this.skin = this.skins.default;
         this.isComp = isComp;
         this.isDirectedRight = isDirectedRight;
@@ -1109,7 +1109,7 @@ class CommandFire {
             image: this.view.model.imgs.fire
         });
         this.view.parent.addChildView({ view: fireView });
-        this.view.audioManager.play('/assets/fire/fire.m4a');
+        this.view.audioManager.play('./assets/fire/fire.m4a');
 
         const steps = Array.from(Array(999999).keys());
         for await (const _ of steps) {
@@ -1243,7 +1243,7 @@ class Game {
 
         const bgImageNumber = 14;
         const randomImageIndx = Math.floor(Math.random() * bgImageNumber);
-        const bgImage = `/assets/scenes/${randomImageIndx + 1}.gif`;
+        const bgImage = `./assets/scenes/${randomImageIndx + 1}.gif`;
 
         const gameView = new GameView({
             containerId: 'game',
