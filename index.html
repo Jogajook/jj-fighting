@@ -4,7 +4,6 @@
 <head>
     <meta charset="utf-8" />
     <title>JJ Fighting</title>
-    <base href="/" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <style>
         * {
@@ -100,6 +99,9 @@
 <body>
     <div id="character-selector"></div>
     <div id="game"></div>
+    <script>
+        document.head.innerHTML = document.head.innerHTML + "<base href='" + document.location.href + "' />";
+    </script>
     <script src="./js/index.js" type="module"></script>
 </body>
 
