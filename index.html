@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <title>JJ Fighting</title>
+    <base href="/" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        html,
+        body {
+            margin: 0;
+            padding: 0;
+        }
+
+        .character-selector {
+            font-size: 120%;
+            display: flex;
+            gap: 30px;
+            justify-content: center;
+            align-items: end;
+            padding-top: 100px;
+        }
+
+        .character-selector select {
+            padding: 5px;
+        }
+
+        .character-selector button {
+            padding: 5px;
+            cursor: pointer;
+        }
+
+        #game {
+            display: flex;
+            justify-content: center;
+
+        }
+
+        .game-wrapper {
+            display: flex;
+            flex-direction: column;
+            /* border: 1px solid red; */
+            position: absolute;
+            background-size: contain;
+        }
+
+        .game-wrapper::before {
+            content: ' ';
+            display: block;
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            opacity: 0.6;
+        }
+
+        .row {
+            display: flex;
+        }
+
+        .scene-object {
+            position: absolute;
+            /* background: green; */
+        }
+
+        #score {
+            position: absolute;
+            padding: 10px;
+            color: rgb(255, 255, 255);
+            opacity: 0.8;
+            background-color: rgb(10, 10, 10);
+            display: flex;
+            width: 100%;
+            justify-content: space-between;
+        }
+
+        .user {
+            width: 100%;
+            height: 100%;
+        }
+
+        .user-kicked {
+            position: absolute;
+            top: 40%;
+        }
+
+        .sound-object {
+            width: 0;
+            height: 0;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="character-selector"></div>
+    <div id="game"></div>
+    <script src="./js/index.js" type="module"></script>
+</body>
+
+</html>
