@@ -45,7 +45,7 @@
             flex-direction: column;
             /* border: 1px solid red; */
             position: absolute;
-            background-size: contain;
+            background-size: cover;
         }
 
         .game-wrapper::before {
@@ -92,6 +92,21 @@
         .sound-object {
             width: 0;
             height: 0;
+        }
+
+        #game-over {
+            background-color: white;
+            font-size: 200%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+        }
+
+        #game-over-paly-again {
+            display: block;
+            width: 100%;
+            cursor: pointer;
         }
     </style>
 </head>
