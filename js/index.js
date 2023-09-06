@@ -98,13 +98,154 @@ class User {
 }
 
 class Fire {
-    isKicking = false;
-    isDirectedRight = false;
+}
 
-    constructor({
-        isDirectedRight
-    }) {
-        this.isDirectedRight = isDirectedRight;
+class Movement {
+
+    static stopCause = {
+        clientStopped: 'clientStopped',
+        willBeOutOfView: 'willBeOutOfView',
+        isOutOfView: 'isOutOfView',
+        willIntesect: 'willIntesect',
+        intersected: 'intersected',
+        finished: 'finished',
+    };
+
+    isStopped = false;
+    stopCause = '';
+
+    constructor({ view, stepTime, stepsNumber, getStepDefinition, onStarted,
+        onWillIntersect, onWillBeOutOfView, onIsOutOfView, onIntesect, onFinished, onStopped }) {
+
+        this.view = view;
+        this.stepTime = stepTime;
+        this.stepsNumber = stepsNumber;
+        this.getStepDefinition = getStepDefinition;
+        this.onStarted = onStarted ? onStarted : () => { };
+        this.onWillIntersect = onWillIntersect ? onWillIntersect : () => true;
+        this.onWillBeOutOfView = onWillBeOutOfView ? onWillBeOutOfView : () => true;
+        this.onIsOutOfView = onIsOutOfView ? onIsOutOfView : () => true;
+        this.onIntesect = onIntesect ? onIntesect : () => true;
+        this.onFinished = onFinished ? onFinished : () => { };
+        this.onStopped = onStopped ? onStopped : () => { };
+    }
+
+    async move() {
+        return new Promise(async (mainResolve) => {
+
+            const steps = Array.from(Array(this.stepsNumber).keys());
+            for await (const step of steps) {
+                const isFirstMove = step === 0;
+                const shouldProceed = await new Promise((resolve) => {
+                    setTimeout(() => {
+
+                        if (this.isStopped) {
+                            this._doStop({ cause: Movement.stopCause.clientStopped });
+                            return resolve(false);
+                        }
+
+                        const points = this.view.getPoints();
+
+                        const isOutOfView = this.view.parent.isOutOfView(points);
+                        if (isOutOfView) {
+                            const shouldProceedOnIsOutOfView = this.onIsOutOfView();
+                            if (!shouldProceedOnIsOutOfView) {
+                                this._doStop({ cause: Movement.stopCause.isOutOfView });
+                                return resolve(false);
+                            }
+                        }
+
+                        const viewIntersected = this.view.parent.getIntersectedView({
+                            view: this.view,
+                            nextViewPoints: points
+                        });
+                        if (viewIntersected) {
+                            const shouldProceedViewIntersected = this.onIntesect({ view: viewIntersected });
+                            if (!shouldProceedViewIntersected) {
+                                this._doStop({ cause: Movement.stopCause.intersected });
+                                return resolve(false);
+                            }
+                        }
+
+                        const stepDef = this.getStepDefinition({ step });
+                        const nextPoints = points.map(item => {
+                            const { x: xDef, y: yDef } = stepDef;
+                            const getMapCoord = coordDef => {
+                                switch (coordDef) {
+                                    case '+':
+                                        return val => val + 1;
+                                    case '-':
+                                        return val => val - 1;
+                                    case '=':
+                                        return val => val;
+                                    default:
+                                        throw Error('Wrong step definition ' + coordDef);
+                                };
+                            };
+                            const nextX = getMapCoord(xDef)(item.x);
+                            const nextY = getMapCoord(yDef)(item.y);
+                            return {
+                                x: nextX,
+                                y: nextY
+                            };
+                        });
+
+                        const viewWillIntersect = this.view.parent.getIntersectedView({
+                            view: this.view,
+                            nextViewPoints: nextPoints
+                        });
+                        if (viewWillIntersect) {
+                            const shouldProceedOnWillIntersect = this.onWillIntersect({ view: viewWillIntersect });
+                            if (!shouldProceedOnWillIntersect) {
+                                this._doStop({ cause: Movement.stopCause.willIntesect });
+                                return resolve(false);
+                            }
+                        }
+
+                        const willBeOutOfView = this.view.parent.isOutOfView(nextPoints);
+                        if (willBeOutOfView) {
+                            const shouldProceedOnwillBeOutOfView = this.onWillBeOutOfView();
+                            if (!shouldProceedOnwillBeOutOfView) {
+                                this._doStop({ cause: Movement.stopCause.willBeOutOfView });
+                                return resolve(false);
+                            }
+                        }
+
+                        if (isFirstMove) {
+                            this.onStarted();
+                        }
+
+                        this.view.parent.moveToPoints({ view: this.view, points: nextPoints });
+
+                        return resolve(true);
+
+                    }, isFirstMove ? 0 : this.stepTime);
+                });
+
+                if (!shouldProceed) {
+                    break;
+                }
+            }
+
+            if (!this.isStopped) {
+                this.finish();
+                mainResolve({ cause: this.stopCause });
+            }
+        });
+    }
+
+    stop() {
+        this._doStop({ cause: Movement.stopCause.clientStopped });
+    }
+
+    finish() {
+        this.onFinished();
+        this._doStop({ cause: Movement.stopCause.finished });
+    }
+
+    _doStop({ cause }) {
+        this.stopCause = cause;
+        this.onStopped({ cause: this.stopCause });
     }
 }
 
@@ -197,10 +338,6 @@ class FireView {
             view: this,
             element: this.el
         });
-    }
-
-    getKickView() {
-        return this.userView;
     }
 
     render() {
@@ -402,7 +539,7 @@ class ScoreView {
         return [];
     }
 
-    setPoints(points) {}
+    setPoints(points) { }
 
     render() {
         const users = [this.model.user1, this.model.user2];
@@ -557,6 +694,7 @@ class UserView {
         reactiveModel.onChange(({
             model
         }) => {
+            console.log('model', model)
             this.model = model;
             this.render();
         });
@@ -617,30 +755,6 @@ class UserView {
     setPoints(points) {
         this.points = points;
         this.render();
-    }
-
-    moveRight() {
-        if (this.parent.canMoveRight({
-                view: this
-            })) {
-            this.parent.moveRight({
-                view: this
-            });
-        }
-    }
-
-    moveLeft() {
-        if (this.parent.canMoveLeft({
-                view: this
-            })) {
-            this.parent.moveLeft({
-                view: this
-            });
-        }
-    }
-
-    getKickView() {
-        return this;
     }
 
     render() {
@@ -810,23 +924,11 @@ class GameView {
         }));
     }
 
-    getIntersectedViewRight({
-        view
-    }) {
-        const nextViewPoints = getNextRightPoints({
-            view
-        });
-        const otherViews = this.childViews
-            .filter(item => item !== view);
-        return nextViewPoints
-            .find(otherViews.some(ow => ow.getPoints().find(owp => owp.x === item.x && owp.y === item.y)));
-    }
-
     getIntersectedViewByPoints(nextViewPoints) {
         return this.childViews
             .find(
                 item => item.getPoints()
-                .some(owp => nextViewPoints.some(p => p.x === owp.x && p.y === owp.y))
+                    .some(owp => nextViewPoints.some(p => p.x === owp.x && p.y === owp.y))
             );
     }
 
@@ -839,30 +941,8 @@ class GameView {
         return otherViews
             .find(
                 item => item.getPoints()
-                .some(owp => nextViewPoints.some(p => p.x === owp.x && p.y === owp.y))
+                    .some(owp => nextViewPoints.some(p => p.x === owp.x && p.y === owp.y))
             );
-    }
-
-    getIntersectedViewRight({
-        view
-    }) {
-        return this.getIntersectedView({
-            view,
-            nextViewPoints: this.getNextRightPoints({
-                view
-            })
-        });
-    }
-
-    getIntersectedViewLeft({
-        view
-    }) {
-        return this.getIntersectedView({
-            view,
-            nextViewPoints: this.getNextLeftPoints({
-                view
-            })
-        });
     }
 
     isOutOfView(points) {
@@ -871,27 +951,15 @@ class GameView {
         return points.some(p => p.x < 0 || p.x > maxX || p.y < 0 || p.y > maxY);
     }
 
-    getIntersectedViewOrOutOfView(points) {
-        const intView = this.getIntersectedViewByPoints(points);
-        if (intView) {
-            return intView;
-        }
-        const isOutOfView = this.isOutOfView(points);
-        if (isOutOfView) {
-            return true;
-        }
-        return null;
-    }
-
     canMove({
         view,
         nextViewPoints
     }) {
         const outOrIntersects = nextViewPoints
             .some(item => this.isOutOfView([{
-                    x: item.x,
-                    y: item.y
-                }]) ||
+                x: item.x,
+                y: item.y
+            }]) ||
                 this.getIntersectedView({
                     view,
                     nextViewPoints
@@ -900,141 +968,13 @@ class GameView {
         return !outOrIntersects;
     }
 
-    move({
+    moveToPoints({
         view,
-        mapFn
+        points
     }) {
-        view.setPoints(
-            mapFn({
-                view
-            })
-        );
+        view.setPoints(points);
         this.notifyOnMove({
             view
-        });
-    }
-
-    getNextRightPoints({
-        view
-    }) {
-        return view.getPoints().map(item => {
-            return {
-                ...item,
-                x: item.x + 1,
-            }
-        });
-    }
-
-    canMoveRight({
-        view
-    }) {
-        return this.canMove({
-            view,
-            nextViewPoints: this.getNextRightPoints({
-                view
-            })
-        });
-    }
-
-    moveRight({
-        view
-    }) {
-        this.move({
-            view,
-            mapFn: this.getNextRightPoints
-        });
-    }
-
-    getNextLeftPoints({
-        view
-    }) {
-        return view.getPoints().map(item => {
-            return {
-                ...item,
-                x: item.x - 1,
-            }
-        });
-    }
-
-    canMoveLeft({
-        view
-    }) {
-        return this.canMove({
-            view,
-            nextViewPoints: this.getNextLeftPoints({
-                view
-            })
-        });
-    }
-
-    moveLeft({
-        view
-    }) {
-        this.move({
-            view,
-            mapFn: this.getNextLeftPoints
-        });
-    }
-
-    getNextUpPoints({
-        view
-    }) {
-        return view.getPoints().map(item => {
-            return {
-                ...item,
-                y: item.y + 1,
-            }
-        })
-    }
-
-    canMoveUp({
-        view
-    }) {
-        return this.canMove({
-            view,
-            nextViewPoints: this.getNextUpPoints({
-                view
-            })
-        });
-    }
-
-    moveUp({
-        view
-    }) {
-        this.move({
-            view,
-            mapFn: this.getNextUpPoints
-        });
-    }
-
-    getNextDownPoints({
-        view
-    }) {
-        return view.getPoints().map(item => {
-            return {
-                ...item,
-                y: item.y - 1,
-            }
-        })
-    }
-
-    canMoveDown({
-        view
-    }) {
-        return this.canMove({
-            view,
-            nextViewPoints: this.getNextDownPoints({
-                view
-            })
-        });
-    }
-
-    moveDown({
-        view
-    }) {
-        this.move({
-            view,
-            mapFn: this.getNextDownPoints
         });
     }
 
@@ -1282,9 +1222,9 @@ class AudioManager {
         loop,
         volume
     } = {
-        loop: false,
-        volume: 1
-    }) {
+            loop: false,
+            volume: 1
+        }) {
         const el = document.getElementById(this.containerId);
         if (el) {
             el.src = soundUrl;
@@ -1299,59 +1239,226 @@ class CommandExecutor {
     commands = [];
 
     async storeAndExecute(command) {
-        await command.execute();
+        const result = await command.execute();
         this.commands.push(command);
+        return result;
     }
 }
 
-class CommandJump {
+
+class CommandMoveOneTime {
 
     constructor({
-        view
+        view,
+        isRight,
+        isUp,
+        stepTime,
     }) {
         this.view = view;
+        this.isRight = isRight;
+        this.isUp = isUp;
+        this.stepTime = stepTime;
+    }
+
+    async execute() {
+        const movement = new Movement({
+            view: this.view,
+            stepTime: this.stepTime,
+            stepsNumber: 1,
+            getStepDefinition: ({ step }) => {
+                const xDef = typeof this.isRight === 'undefined'
+                    ? '='
+                    : this.isRight
+                        ? '+' : '-';
+                const yDef = typeof this.isUp === 'undefined'
+                    ? '='
+                    : this.isUp
+                        ? '+' : '-';
+                return {
+                    x: xDef,
+                    y: yDef,
+                };
+            },
+            onWillBeOutOfView: () => {
+                movement.stop();
+                return false;
+            },
+            onWillIntersect: () => {
+                movement.stop();
+                return false;
+            },
+        });
+        await movement.move();
+    }
+}
+
+class CommandMoveUp {
+
+    constructor({
+        view,
+        stepTime,
+        stepsNumber,
+        allowIntersection,
+        allowOutOfView,
+    }) {
+        this.view = view;
+        this.stepTime = stepTime;
+        this.stepsNumber = stepsNumber;
+        this.allowIntersection = typeof allowIntersection !== 'undefined' ? allowIntersection : false;
+        this.allowOutOfView = typeof allowOutOfView !== 'undefined' ? allowOutOfView : false;;
+    }
+
+    async execute() {
+        const movementUp = new Movement({
+            view: this.view,
+            stepTime: this.stepTime,
+            stepsNumber: this.stepsNumber,
+            getStepDefinition: ({ step }) => {
+                return {
+                    x: '=',
+                    y: '+',
+                };
+            },
+            onWillBeOutOfView: () => {
+                if (this.allowOutOfView) {
+                    return true;
+                }
+                movementUp.stop();
+                return false;
+            },
+            onWillIntersect: () => {
+                if (this.allowIntersection) {
+                    return true;
+                }
+                movementUp.stop();
+                return false;
+            },
+
+        });
+        await movementUp.move();
+    }
+}
+
+class CommandMoveDown {
+
+    constructor({
+        view,
+        stepTime,
+        stepsNumber,
+        allowIntersection,
+        allowOutOfView,
+        onStarted,
+    }) {
+        this.view = view;
+        this.stepTime = stepTime;
+        this.stepsNumber = stepsNumber;
+        this.allowIntersection = typeof allowIntersection !== 'undefined' ? allowIntersection : false;
+        this.allowOutOfView = typeof allowOutOfView !== 'undefined' ? allowOutOfView : false;
+        this.onStarted = onStarted ? onStarted : () => true;
+    }
+
+    async execute() {
+        const movement = new Movement({
+            view: this.view,
+            stepTime: this.stepTime,
+            stepsNumber: this.stepsNumber,
+            getStepDefinition: ({ step }) => {
+                return {
+                    x: '=',
+                    y: '-',
+                };
+            },
+            onStarted: () => {
+                this.onStarted();
+            },
+            onWillBeOutOfView: () => {
+                if (this.allowOutOfView) {
+                    return true;
+                }
+                movement.stop();
+                return false;
+            },
+            onWillIntersect: () => {
+                if (this.allowIntersection) {
+                    return true;
+                }
+                movement.stop();
+                return false;
+            },
+
+        });
+        return await movement.move();
+    }
+}
+class CommandUserJump {
+
+    constructor({
+        view,
+        commandExecutor,
+    }) {
+        this.view = view;
+        this.commandExecutor = commandExecutor;
     }
 
     async execute() {
         if (this.view.model.isJumping || this.view.model.isLanding) {
             return;
         }
-        const steps = Array.from(Array(this.view.jumpHeight).keys());
-        for await (const step of steps) {
-            const shouldProceed = await new Promise((resolve) => {
-                if (step === 0) {
-                    if (this.view.parent.canMoveUp({
-                            view: this.view
-                        })) {
-                        if (step === 0) {
-                            this.view.reactiveModel.setPropValue('isJumping', true);
-                        }
-                        this.view.parent.moveUp({
-                            view: this.view
-                        });
-                        return resolve(true);
-                    } else {
-                        return resolve(false);
-                    }
-                }
-                setTimeout(() => {
-                    if (this.view.parent.canMoveUp({
-                            view: this.view
-                        })) {
-                        this.view.parent.moveUp({
-                            view: this.view
-                        });
-                        return resolve(true);
-                    } else if (this.view.model.isJumping) {
-                        return resolve(false);
-                    }
-                }, this.view.jumpStepTime);
-            });
-            if (!shouldProceed) {
-                break;
-            }
-        }
+        this.view.reactiveModel.setPropValue('isJumping', true);
+        await this.commandExecutor.storeAndExecute(
+            new CommandMoveUp({
+                view: this.view,
+                stepTime: this.view.jumpStepTime,
+                stepsNumber: this.view.jumpHeight,
+                allowIntersection: false,
+                allowOutOfView: false
+            })
+        );
         this.view.reactiveModel.setPropValue('isJumping', false);
+
+        await this.commandExecutor.storeAndExecute(
+            new CommandMoveDown({
+                view: this.view,
+                stepTime: this.view.jumpStepTime,
+                stepsNumber: 9999,
+                allowIntersection: false,
+                allowOutOfView: false,
+                onStarted: () => this.view.reactiveModel.setPropValue('isLanding', true)
+            })
+        );
+        this.view.reactiveModel.setPropValue('isLanding', false);
+        // this.view.reactiveModel.setPropValue('isLanding', false);
+    }
+}
+
+class CommandTryUserLand {
+
+    constructor({
+        view,
+        commandExecutor,
+    }) {
+        this.view = view;
+        this.commandExecutor = commandExecutor;
+    }
+
+    async execute() {
+        if (this.view.model.isJumping || this.view.model.isLanding) {
+            return;
+        }
+
+        await this.commandExecutor.storeAndExecute(
+            new CommandMoveDown({
+                view: this.view,
+                stepTime: this.view.jumpStepTime,
+                stepsNumber: 9999,
+                allowIntersection: false,
+                allowOutOfView: false,
+                onStarted: () => this.view.reactiveModel.setPropValue('isLanding', true)
+            })
+        );
+        if (this.view.model.isLanding) {
+            this.view.reactiveModel.setPropValue('isLanding', false);
+        }
     }
 }
 
@@ -1368,8 +1475,8 @@ class CommandLand {
             return;
         }
         if (this.view.parent.canMoveDown({
-                view: this.view
-            })) {
+            view: this.view
+        })) {
             this.view.reactiveModel.setPropValue('isLanding', true);
         }
         const steps = Array.from(Array(999999).keys());
@@ -1377,8 +1484,8 @@ class CommandLand {
             const shouldProceed = await new Promise((resolve) => {
                 setTimeout(() => {
                     if (this.view.parent.canMoveDown({
-                            view: this.view
-                        })) {
+                        view: this.view
+                    })) {
                         this.view.parent.moveDown({
                             view: this.view
                         });
@@ -1396,36 +1503,69 @@ class CommandLand {
     }
 }
 
+
+class CommandHit {
+
+    constructor({
+        sourceView,
+        targetView,
+    }) {
+        this.sourceView = sourceView;
+        this.targetView = targetView;
+    }
+
+    async execute() {
+        this.targetView.reactiveModel.setPropValue('isKicked', true);
+        this.targetView.parent.notifyOnInteraction({
+            source: this.sourceView.reactiveModel,
+            target: this.targetView.reactiveModel,
+            interactionType: INTERACTION_TYPE.Kicked
+        });
+        setTimeout(() => {
+            this.targetView.reactiveModel.setPropValue('isKicked', false);
+        }, 1000);
+    }
+}
+
 class CommandKick {
 
     constructor({
-        view
+        view,
+        commandExecutor,
     }) {
         this.view = view;
+        this.commandExecutor = commandExecutor;
     }
 
     async execute() {
         this.view.reactiveModel.setPropValue('isKicking', true);
         const interactionDuration = 1000;
-        const targetView = this.view.model.isDirectedRight ?
-            this.view.parent.getIntersectedViewRight({
-                view: this.view
-            }) :
-            this.view.parent.getIntersectedViewLeft({
-                view: this.view
-            });
-        if (targetView && targetView instanceof UserView) {
-            const target = targetView.reactiveModel;
-            target.setPropValue('isKicked', true);
-            setTimeout(() => {
-                target.setPropValue('isKicked', false);
-            }, interactionDuration);
-            this.view.parent.notifyOnInteraction({
-                source: this.view.getKickView().reactiveModel,
-                target,
-                interactionType: INTERACTION_TYPE.Kicked
-            });
-        }
+        const isDirectedRight = this.view.model.isDirectedRight;
+        const movement = new Movement({
+            view: this.view,
+            stepTime: 0,
+            stepsNumber: 0,
+            getStepDefinition: ({ step }) => {
+                return {
+                    x: isDirectedRight ? '+' : '-',
+                    y: '=',
+                };
+            },
+            onWillIntesect: ({ view: intersectedView }) => {
+                if (intersectedView instanceof UserView && intersectedView !== this.view) {
+                    movement.stop();
+                    this.commandExecutor.storeAndExecute(
+                        new CommandHit({
+                            sourceView: this.view,
+                            targetView: intersectedView,
+                        })
+                    );
+                    return false;
+                }
+                return true;
+            },
+        });
+        await movement.move();
         setTimeout(() => {
             this.view.reactiveModel.setPropValue('isKicking', false);
         }, interactionDuration);
@@ -1464,9 +1604,7 @@ class CommandFire {
         }
 
         const rFire = makeReactive({
-            model: new Fire({
-                isDirectedRight: this.view.model.isDirectedRight
-            })
+            model: new Fire()
         });
 
         const fireView = new FireView({
@@ -1485,41 +1623,38 @@ class CommandFire {
         });
         this.view.audioManager.play('./assets/fire/fire.m4a');
 
-        const steps = Array.from(Array(999999).keys());
-        for await (const _ of steps) {
-            const shouldProceed = await new Promise((resolve) => {
-                setTimeout(() => {
-                    const nextPoints = this.view.model.isDirectedRight ?
-                        this.view.parent.getNextRightPoints({
-                            view: fireView
-                        }) :
-                        this.view.parent.getNextLeftPoints({
-                            view: fireView
-                        });
+        const isDirectedRight = this.view.model.isDirectedRight;
 
-                    if (this.view.parent.isOutOfView(nextPoints)) {
-                        fireView.destroy();
-                        return resolve(false);
-                    }
-
-                    const intersectedView = this.view.parent.getIntersectedViewByPoints(nextPoints);
-                    if (intersectedView instanceof UserView && intersectedView !== this.view) {
-                        this.commandExecutor.storeAndExecute(
-                            new CommandKick({
-                                view: fireView
-                            })
-                        );
-                        return resolve(false);
-                    }
-
-                    fireView.setPoints(nextPoints);
-                    return resolve(true);
-                }, this.fireStepTime);
-            });
-            if (!shouldProceed) {
-                break;
+        const movement = new Movement({
+            view: fireView,
+            stepTime: this.fireStepTime,
+            stepsNumber: 9999,
+            getStepDefinition: ({ step }) => {
+                return {
+                    x: isDirectedRight ? '+' : '-',
+                    y: '=',
+                };
+            },
+            onOutOfView: () => {
+                movement.stop();
+                return false;
+            },
+            onIntesect: ({ view: intersectedView }) => {
+                if (intersectedView instanceof UserView && intersectedView !== this.view) {
+                    movement.stop();
+                    this.commandExecutor.storeAndExecute(
+                        new CommandHit({
+                            sourceView: this.view,
+                            targetView: intersectedView,
+                        })
+                    );
+                    return false;
+                }
+                return true;
             }
-        }
+        });
+        await movement.move();
+        fireView.destroy();
     }
 }
 
@@ -1533,7 +1668,8 @@ class Game {
         userJumpStepTime,
         fireStepTime,
         debounceMs,
-        throttleFireMs
+        throttleFireMs,
+        throttleKickMs,
     }) {
 
         this.canvasWidth = canvasWidth;
@@ -1542,6 +1678,7 @@ class Game {
         this.fireStepTime = fireStepTime;
         this.debounceMs = debounceMs;
         this.throttleFireMs = throttleFireMs;
+        this.throttleKickMs = throttleKickMs;
 
         const body = document.body;
 
@@ -1560,7 +1697,7 @@ class Game {
                 new Character({
                     name: 'zhenia',
                     canvasWidth: this.canvasWidth,
-                    height: 5,
+                    height: 6,
                     heightToWidth: 2,
                     fireImage: 'fire-banana.png'
                 }),
@@ -1574,7 +1711,7 @@ class Game {
                 new Character({
                     name: 'kurka',
                     canvasWidth: this.canvasWidth,
-                    height: 6,
+                    height: 7,
                     heightToWidth: 1,
                     fireImage: 'fire-tomato.gif'
                 }),
@@ -1582,20 +1719,20 @@ class Game {
                     name: 'mario',
                     canvasWidth: this.canvasWidth,
                     height: 4,
-                    heightToWidth: 2 / 3, 
+                    heightToWidth: 2 / 3,
                     fireImage: 'fire-tomato.gif'
                 }),
                 new Character({
                     name: 'bowser',
                     canvasWidth: this.canvasWidth,
                     height: 8,
-                    heightToWidth: 1, 
+                    heightToWidth: 1,
                     fireImage: 'fire-banana.png'
                 }),
                 new Character({
                     name: 'ptero',
                     canvasWidth: this.canvasWidth,
-                    height: 3,
+                    height: 7,
                     heightToWidth: 1 / 2,
                     fireImage: 'fire-strawberry.png'
                 }),
@@ -1729,17 +1866,23 @@ class Game {
             }) => {
                 const userViews = gameView.childViews.filter(v => v instanceof UserView);
                 userViews.forEach(userView => {
-                    if (!userView.model.isJumping && !userView.model.isLanding) {
-                        if (userView.parent.canMoveDown({
-                                view: userView
-                            })) {
-                            commandExecutor.storeAndExecute(
-                                new CommandLand({
-                                    view: userView
-                                })
-                            );
-                        }
-                    }
+                    commandExecutor.storeAndExecute(
+                        new CommandTryUserLand({
+                            view: userView,
+                            commandExecutor: commandExecutor
+                        })
+                    );
+                    // if (!userView.model.isJumping && !userView.model.isLanding) {
+                    //     if (userView.parent.canMoveDown({
+                    //         view: userView
+                    //     })) {
+                    //         commandExecutor.storeAndExecute(
+                    //             new CommandLand({
+                    //                 view: userView
+                    //             })
+                    //         );
+                    //     }
+                    // }
                     const otherUserViewPoints = [];
                     userView.parent.childViews
                         .filter(item => item instanceof UserView && item !== userView)
@@ -1770,7 +1913,13 @@ class Game {
                 const view = code === KEY_CODES.User1MoveRight ?
                     user1View :
                     user2View;
-                view.moveRight();
+                commandExecutor.storeAndExecute(
+                    new CommandMoveOneTime({
+                        view,
+                        isRight: true,
+                        stepTime: 1
+                    })
+                );
             })
         );
 
@@ -1781,7 +1930,13 @@ class Game {
                 const view = code === KEY_CODES.User1MoveLeft ?
                     user1View :
                     user2View;
-                view.moveLeft();
+                commandExecutor.storeAndExecute(
+                    new CommandMoveOneTime({
+                        view,
+                        isRight: false,
+                        stepTime: 1
+                    })
+                );
             })
         );
 
@@ -1793,20 +1948,16 @@ class Game {
                     user1View :
                     user2View;
                 await commandExecutor.storeAndExecute(
-                    new CommandJump({
-                        view
-                    })
-                );
-                await commandExecutor.storeAndExecute(
-                    new CommandLand({
-                        view
+                    new CommandUserJump({
+                        view,
+                        commandExecutor
                     })
                 );
             })
         );
 
         this.unSubs.push(
-            this.keyboardListener.onPressKeys([KEY_CODES.User1Kick, KEY_CODES.User2Kick], async ({
+            this.keyboardListener.onPressKeys([KEY_CODES.User1Kick], throttle(async ({
                 code
             }) => {
                 const view = code === KEY_CODES.User1Kick ?
@@ -1814,14 +1965,51 @@ class Game {
                     user2View;
                 await commandExecutor.storeAndExecute(
                     new CommandKick({
-                        view
+                        view,
+                        commandExecutor
                     })
                 );
-            })
+            }, this.throttleKickMs)
+            )
         );
 
         this.unSubs.push(
-            this.keyboardListener.onPressKeys([KEY_CODES.User1Fire, KEY_CODES.User2Fire], throttle(({
+            this.keyboardListener.onPressKeys([KEY_CODES.User2Kick], throttle(async ({
+                code
+            }) => {
+                const view = code === KEY_CODES.User1Kick ?
+                    user1View :
+                    user2View;
+                await commandExecutor.storeAndExecute(
+                    new CommandKick({
+                        view,
+                        commandExecutor
+                    })
+                );
+            }, this.throttleKickMs)
+            )
+        );
+
+        this.unSubs.push(
+            this.keyboardListener.onPressKeys([KEY_CODES.User1Fire], throttle(({
+                code
+            }) => {
+                const view = code === KEY_CODES.User1Fire ?
+                    user1View :
+                    user2View;
+                commandExecutor.storeAndExecute(
+                    new CommandFire({
+                        view,
+                        pointSize: this.pointSize,
+                        commandExecutor,
+                        fireStepTime: this.fireStepTime
+                    })
+                );
+            }, this.throttleFireMs))
+        );
+
+        this.unSubs.push(
+            this.keyboardListener.onPressKeys([KEY_CODES.User2Fire], throttle(({
                 code
             }) => {
                 const view = code === KEY_CODES.User1Fire ?
@@ -1890,4 +2078,5 @@ const game = new Game({
     fireStepTime: 100,
     debounceMs: 5,
     throttleFireMs: 4000,
+    throttleKickMs: 1000,
 });
