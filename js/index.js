@@ -30,12 +30,14 @@ const KEY_CODES = {
     User1Jump: 'ArrowUp',
     User1Kick: 'Space',
     User1Fire: 'Enter',
+    User1Throw: 'Slash',
 
     User2MoveLeft: 'KeyA',
     User2MoveRight: 'KeyD',
     User2Jump: 'KeyW',
     User2Kick: 'KeyF',
     User2Fire: 'KeyR',
+    User2Throw: 'KeyE',
 };
 
 const GAME_EVENTS = {
@@ -59,6 +61,8 @@ class User {
     isDirectedRight = true;
     isJumping = false;
     isLanding = false;
+    isThrowing = false;
+    isThrown = false;
     health = 10;
     skin = '';
     imgs = {
@@ -68,6 +72,8 @@ class User {
     skins = {
         default: '',
         kicking: '',
+        throwing: '',
+        thrown: ''
     };
     sounds = {
         kicking: '',
@@ -86,6 +92,8 @@ class User {
         this.character = character;
         this.skins.default = `./assets/characters/${this.character}/default.png`;
         this.skins.kicking = `./assets/characters/${this.character}/kicking.png`;
+        this.skins.throwing = `./assets/characters/${this.character}/throwing.png`;
+        this.skins.thrown = `./assets/characters/${this.character}/hitByThrowing.png`;
         this.imgs.kicked = `./assets/kicked.png`;
         this.imgs.fire = `./assets/fire/${fireImage}`;
         this.sounds.kicking = `./assets/characters/${this.character}/kicking.m4a`;
@@ -97,8 +105,7 @@ class User {
     }
 }
 
-class Fire {
-}
+class Fire {}
 
 class Movement {
 
@@ -118,8 +125,8 @@ class Movement {
         onWillIntersect, onWillBeOutOfView, onIsOutOfView, onIntesect, onFinished, onStopped }) {
 
         this.view = view;
-        this.stepTime = stepTime;
-        this.stepsNumber = stepsNumber;
+        this.stepTime = stepTime = stepTime || 0;
+        this.stepsNumber = stepsNumber || 1;
         this.getStepDefinition = getStepDefinition;
         this.onStarted = onStarted ? onStarted : () => { };
         this.onWillIntersect = onWillIntersect ? onWillIntersect : () => true;
@@ -130,7 +137,7 @@ class Movement {
         this.onStopped = onStopped ? onStopped : () => { };
     }
 
-    async move() {
+    async move(simulate = false) {
         return new Promise(async (mainResolve) => {
 
             const steps = Array.from(Array(this.stepsNumber).keys());
@@ -215,7 +222,9 @@ class Movement {
                             this.onStarted();
                         }
 
-                        this.view.parent.moveToPoints({ view: this.view, points: nextPoints });
+                        if (!simulate) {
+                            this.view.parent.moveToPoints({ view: this.view, points: nextPoints });
+                        }
 
                         return resolve(true);
 
@@ -232,6 +241,10 @@ class Movement {
                 mainResolve({ cause: this.stopCause });
             }
         });
+    }
+
+    async simulate() {
+        return this.move(true)
     }
 
     stop() {
@@ -694,7 +707,7 @@ class UserView {
         reactiveModel.onChange(({
             model
         }) => {
-            console.log('model', model)
+            // console.log('model', model);
             this.model = model;
             this.render();
         });
@@ -723,6 +736,27 @@ class UserView {
         }) => {
             if (value) {
                 this.audioManager.play(this.model.sounds.kicked);
+            }
+        });
+
+        reactiveModel.onPropChange('isThrown', ({
+            value
+        }) => {
+            if (value) {
+                reactiveModel.setPropValue('skin', this.model.skins.thrown);
+            } else {
+                reactiveModel.setPropValue('skin', this.model.skins.default);
+            }
+        });
+
+        reactiveModel.onPropChange('isThrowing', ({
+            value
+        }) => {
+            if (value) {
+                reactiveModel.setPropValue('skin', this.model.skins.throwing);
+                this.audioManager.play(this.model.sounds.kicking);
+            } else {
+                reactiveModel.setPropValue('skin', this.model.skins.default);
             }
         });
     }
@@ -1176,7 +1210,7 @@ class KeyboardListener {
 
 class Character {
 
-    offset = 2;
+    offset = 10;
     isDirectedRight = false;
 
     constructor({
@@ -1190,11 +1224,6 @@ class Character {
         this.canvasWidth = canvasWidth;
         this.height = height;
         this.width = Math.floor(height / heightToWidth);
-        // if (Math.floor(this.width) !== this.width) {
-        //     const err = 'Wrong character height provided';
-        //     alert('Wrong character height provided');
-        //     throw Error('')
-        // }
         this.fireImage = fireImage;
     }
 
@@ -1442,7 +1471,7 @@ class CommandTryUserLand {
     }
 
     async execute() {
-        if (this.view.model.isJumping || this.view.model.isLanding) {
+        if (this.view.model.isJumping || this.view.model.isLanding || this.view.model.isThrown) {
             return;
         }
 
@@ -1543,15 +1572,13 @@ class CommandKick {
         const isDirectedRight = this.view.model.isDirectedRight;
         const movement = new Movement({
             view: this.view,
-            stepTime: 0,
-            stepsNumber: 0,
             getStepDefinition: ({ step }) => {
                 return {
                     x: isDirectedRight ? '+' : '-',
                     y: '=',
                 };
             },
-            onWillIntesect: ({ view: intersectedView }) => {
+            onWillIntersect: ({ view: intersectedView }) => {
                 if (intersectedView instanceof UserView && intersectedView !== this.view) {
                     movement.stop();
                     this.commandExecutor.storeAndExecute(
@@ -1565,13 +1592,12 @@ class CommandKick {
                 return true;
             },
         });
-        await movement.move();
+        await movement.simulate();
         setTimeout(() => {
             this.view.reactiveModel.setPropValue('isKicking', false);
         }, interactionDuration);
     }
 }
-
 
 class CommandFire {
 
@@ -1658,6 +1684,91 @@ class CommandFire {
     }
 }
 
+
+class CommandThrow {
+
+    constructor({
+        view,
+        pointSize,
+        commandExecutor,
+        stepTime
+    }) {
+        this.view = view;
+        this.pointSize = pointSize;
+        this.commandExecutor = commandExecutor;
+        this.stepTime = stepTime;
+    }
+
+    async execute() {
+        if (this.view.model.isJumping || this.view.model.isLanding 
+            || this.view.model.isThrowing || this.view.model.isThrown) {
+            return;
+        }
+        const isDirectedRight = this.view.model.isDirectedRight;
+        const movement = new Movement({
+            view: this.view,
+            stepTime: 0,
+            stepsNumber: 0,
+            getStepDefinition: ({ step }) => {
+                return {
+                    x: isDirectedRight ? '+' : '-',
+                    y: '=',
+                };
+            },
+            onWillIntersect: ({ view: intersectedView }) => {
+                if (intersectedView instanceof UserView && intersectedView !== this.view) {
+                    movement.stop();
+                    const stepsNumber = 20;
+                    const movement2 = new Movement({
+                        view: intersectedView,
+                        stepTime: 50,
+                        stepsNumber,
+                        getStepDefinition: ({ step }) => {
+                            if ((step + 1) <= stepsNumber / 2) {
+                                return {
+                                    x: '=',
+                                    y: '+',
+                                }
+                            }
+                            if ((step + 1) > stepsNumber / 2) {
+                                return {
+                                    x: '=',
+                                    y: '-',
+                                }
+                            }
+                        },
+                        onStarted: () => {
+                            this.view.reactiveModel.setPropValue('isThrowing', true);
+                            intersectedView.reactiveModel.setPropValue('isThrown', true);
+                        },
+                        onWillIntersect: () => {
+                            movement.stop();
+                        },
+                        onStopped: () => {
+                            this.commandExecutor.storeAndExecute(
+                                new CommandHit({
+                                    sourceView: this.view,
+                                    targetView: intersectedView,
+                                })
+                            );
+                            setTimeout(() => {
+                                this.view.reactiveModel.setPropValue('isThrowing', false);
+                                intersectedView.reactiveModel.setPropValue('isThrown', false);
+                            }, 500);
+                        },
+                    });
+                    movement2.move();
+
+                    return false;
+                }
+                return true;
+            },
+        });
+        await movement.simulate();
+
+    }
+}
+
 class Game {
 
     unSubs = [];
@@ -1732,7 +1843,7 @@ class Game {
                 new Character({
                     name: 'ptero',
                     canvasWidth: this.canvasWidth,
-                    height: 7,
+                    height: 4,
                     heightToWidth: 1 / 2,
                     fireImage: 'fire-strawberry.png'
                 }),
@@ -1872,17 +1983,7 @@ class Game {
                             commandExecutor: commandExecutor
                         })
                     );
-                    // if (!userView.model.isJumping && !userView.model.isLanding) {
-                    //     if (userView.parent.canMoveDown({
-                    //         view: userView
-                    //     })) {
-                    //         commandExecutor.storeAndExecute(
-                    //             new CommandLand({
-                    //                 view: userView
-                    //             })
-                    //         );
-                    //     }
-                    // }
+
                     const otherUserViewPoints = [];
                     userView.parent.childViews
                         .filter(item => item instanceof UserView && item !== userView)
@@ -2024,6 +2125,24 @@ class Game {
                     })
                 );
             }, this.throttleFireMs))
+        );
+
+        this.unSubs.push(
+            this.keyboardListener.onPressKeys([KEY_CODES.User1Throw, KEY_CODES.User2Throw], throttle(({
+                code
+            }) => {
+                const view = code === KEY_CODES.User1Throw ?
+                    user1View :
+                    user2View;
+                commandExecutor.storeAndExecute(
+                    new CommandThrow({
+                        view,
+                        pointSize: this.pointSize,
+                        commandExecutor,
+                        stepTime: this.fireStepTime
+                    })
+                );
+            }, 100))
         );
 
         this.unSubs.push(
