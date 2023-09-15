@@ -14,6 +14,7 @@
         body {
             margin: 0;
             padding: 0;
+            background-color: black;
         }
 
         .character-selector {
@@ -26,18 +27,26 @@
         }
 
         .character-selector select {
-            padding: 5px;
+            padding: 10px;
+            cursor: pointer;
+            background-color: aqua;
         }
 
         .character-selector button {
             padding: 5px;
             cursor: pointer;
+            background-color: aqua;
+            width: 100px;
+            padding: 10px;
+        }
+
+        .character-selector button:hover {
+            background-color: chartreuse;
         }
 
         #game {
             display: flex;
             justify-content: center;
-
         }
 
         .game-wrapper {
@@ -46,6 +55,17 @@
             /* border: 1px solid red; */
             position: absolute;
             background-size: cover;
+            animation: fadeIn 5s;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0.2;
+            }
+
+            to {
+                opacity: 1;
+            }
         }
 
         .game-wrapper::before {
@@ -56,7 +76,8 @@
             top: 0;
             width: 100%;
             height: 100%;
-            opacity: 0.6;
+            background-color: black;
+            opacity: 0.4;
         }
 
         .row {
@@ -82,6 +103,43 @@
         .user {
             width: 100%;
             height: 100%;
+            align-self: flex-end;
+            animation-duration: 2s;
+            animation-iteration-count: infinite;
+            animation-timing-function: linear;
+            animation-name: bounce-1;
+        }
+
+        .user.user--directed-left {
+            animation-name: bounce-2;
+        }
+
+        @keyframes bounce-1 {
+            0% {
+                transform: translateY(0) translateX(0);
+            }
+
+            50% {
+                transform: translateY(-3px) translateX(-3px);
+            }
+
+            100% {
+                transform: translateY(0) translateX(0);
+            }
+        }
+
+        @keyframes bounce-2 {
+            0% {
+                transform: scaleX(-1) translateY(0) translateX(0);
+            }
+
+            50% {
+                transform: scaleX(-1) translateY(-3px) translateX(-3px);
+            }
+
+            100% {
+                transform: scaleX(-1) translateY(0) translateX(0);
+            }
         }
 
         .user-kicked {

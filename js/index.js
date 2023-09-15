@@ -40,12 +40,34 @@ const KEY_CODES = {
     User2Throw: 'KeyE',
 };
 
+const JOYSTICK_BUTTON_NAMES = {
+    One: 'One',
+    Two: 'Two',
+    Three: 'Three',
+    Four: 'Four',
+    Up: 'Up',
+    Down: 'Down',
+    Left: 'Left',
+    Right: 'Right',
+};
+
+const JOYSTICK_KEY_CODES = {
+    UserMoveLeft: JOYSTICK_BUTTON_NAMES.Left,
+    UserMoveRight: JOYSTICK_BUTTON_NAMES.Right,
+    UserJump: JOYSTICK_BUTTON_NAMES.Up,
+    UserKick: JOYSTICK_BUTTON_NAMES.One,
+    UserFire: JOYSTICK_BUTTON_NAMES.Two,
+    UserThrow: JOYSTICK_BUTTON_NAMES.Three,
+};
+
 const GAME_EVENTS = {
-    TryMoveRight: 'TryMoveRight',
-    TryJump: 'TryJump',
-    TryMoveLeft: 'TryMoveLeft',
-    Kick: 'Kick',
-    Kicked: 'Kicked',
+    UserMoveRight: 'TryMoveRight',
+    UserMoveLeft: 'UserMoveLeft',
+    UserJump: 'UserJump',
+    UserKick: 'UserKick',
+    UserKicked: 'UserKicked',
+    UserFire: 'UserFire',
+    UserThrow: 'UserThrow',
 };
 
 const INTERACTION_TYPE = {
@@ -105,7 +127,7 @@ class User {
     }
 }
 
-class Fire {}
+class Fire { }
 
 class Movement {
 
@@ -788,6 +810,7 @@ class UserView {
 
     setPoints(points) {
         this.points = points;
+        console.log('userview', this.model.name, points)
         this.render();
     }
 
@@ -805,7 +828,7 @@ class UserView {
         const top = (topDiff * this.pointSize);
 
         const output = `
-            <img class="user" style="${this.model.isDirectedRight ? '' : "transform: scaleX(-1)"}" src="${this.model.skin}">
+            <img class="user${this.model.isDirectedRight ? '' : ' user--directed-left'}" src="${this.model.skin}">
             <img class="user-kicked" 
                 style="display: ${this.model.isKicked ? "inline" : "none"};
                 ${this.model.isDirectedRight ? "right: 40%" : "left: 40%"}"
@@ -874,7 +897,16 @@ class GameView {
         el.remove();
     }
 
+    // requestFullScreen() {
+    //     const el = document.getElementById(this.containerId);
+    //     if (el) {
+    //         el.requestFullscreen();
+    //     }
+    // }
+
     render() {
+        const element = document.getElementById(this.containerId);
+        
         let rows = [];
         for (let row = this.height - 1; row >= 0; row--) {
             let rowStr = `<div class="row">`;
@@ -908,8 +940,7 @@ class GameView {
         </div>
             `;
 
-        document.getElementById(this.containerId).innerHTML = wrapper;
-
+        element.innerHTML = wrapper;
         this.childViews.forEach(item => item.render());
     }
 
@@ -1194,6 +1225,7 @@ class KeyboardListener {
         const listener = ({
             code
         }) => {
+            console.log('code', code)
             if (keyCodes.includes(code)) {
                 cb({
                     code
@@ -1661,7 +1693,7 @@ class CommandFire {
                     y: '=',
                 };
             },
-            onOutOfView: () => {
+            onWillBeOutOfView: () => {
                 movement.stop();
                 return false;
             },
@@ -1700,8 +1732,7 @@ class CommandThrow {
     }
 
     async execute() {
-        if (this.view.model.isJumping || this.view.model.isLanding 
-            || this.view.model.isThrowing || this.view.model.isThrown) {
+        if (!this._canThrowOrBeThrown({ view: this.view })) {
             return;
         }
         const isDirectedRight = this.view.model.isDirectedRight;
@@ -1718,6 +1749,9 @@ class CommandThrow {
             onWillIntersect: ({ view: intersectedView }) => {
                 if (intersectedView instanceof UserView && intersectedView !== this.view) {
                     movement.stop();
+                    if (!this._canThrowOrBeThrown({ view: intersectedView })) {
+                        return false;
+                    }
                     const stepsNumber = 20;
                     const movement2 = new Movement({
                         view: intersectedView,
@@ -1767,7 +1801,117 @@ class CommandThrow {
         await movement.simulate();
 
     }
+
+    _canThrowOrBeThrown({ view }) {
+        if (view.model.isJumping || view.model.isLanding
+            || view.model.isThrowing || view.model.isThrown) {
+            return false;
+        }
+        return true;
+    }
 }
+
+
+class JoyStick {
+
+    _gamepadIndex = -1;
+
+    _buttonMap = {
+        0: JOYSTICK_BUTTON_NAMES.One,
+        1: JOYSTICK_BUTTON_NAMES.Two,
+        2: JOYSTICK_BUTTON_NAMES.Three,
+        3: JOYSTICK_BUTTON_NAMES.Four,
+    };
+
+    _onBtnListeners = {
+        [JOYSTICK_BUTTON_NAMES.One]: [],
+        [JOYSTICK_BUTTON_NAMES.Two]: [],
+        [JOYSTICK_BUTTON_NAMES.Three]: [],
+        [JOYSTICK_BUTTON_NAMES.Four]: [],
+        [JOYSTICK_BUTTON_NAMES.Right]: [],
+        [JOYSTICK_BUTTON_NAMES.Left]: [],
+        [JOYSTICK_BUTTON_NAMES.Up]: [],
+        [JOYSTICK_BUTTON_NAMES.Down]: []
+    };
+
+    constructor({ gamepadIndex }) {
+        this._gamepadIndex = gamepadIndex;
+        // this._checkPressedButtonsThrottled = throttle(() => this._checkPressedButtons(), this.throttleMs);
+        this.handleEvents();
+    }
+
+    subscribeOnButtonClick(btn, cb) {
+        const includes = this._onBtnListeners[btn].includes(cb);
+        if (!includes) {
+            this._onBtnListeners[btn].push(cb);
+        }
+        return () => {
+            const indx = this._onBtnListeners[btn].indexOf(cb);
+            if (indx >= 0) {
+                this._onBtnListeners[btn].splice(indx, 1);
+            }
+        };
+    }
+
+    notifyOnButtonClicked(btn) {
+        this._onBtnListeners[btn].forEach(cb => cb());
+    }
+
+    async handleEvents() {
+        await this._setPamepad();
+        this._listenForClickEvents();
+    }
+
+    _setPamepad() {
+        return new Promise((resolve) => {
+            window.addEventListener("gamepadconnected", (e) => {
+                console.log('connected', e);
+                if (e.gamepad.index !== this._gamepadIndex) {
+                    return;
+                }
+                console.log('this._gamepad', this._gamepadIndex)
+                resolve();
+            });
+        });
+    }
+
+    _listenForClickEvents() {
+        // this._checkPressedButtonsThrottled();
+        this._checkPressedButtons();
+        requestAnimationFrame(() => this._listenForClickEvents());
+    }
+
+    _checkPressedButtons() {
+        const gamepad = navigator.getGamepads()[this._gamepadIndex];
+        gamepad.buttons.forEach((button, indx) => {
+            const name = this._buttonMap[indx];
+            if (typeof name === 'string') {
+                if (button.pressed) {
+                    this.notifyOnButtonClicked(name);
+                }
+            }
+        });
+
+        const isRightMove = gamepad.axes[0] === 1;
+        if (isRightMove) {
+            this.notifyOnButtonClicked(JOYSTICK_BUTTON_NAMES.Right);
+        }
+        const isLeftMove = gamepad.axes[0] === -1;
+        if (isLeftMove) {
+            this.notifyOnButtonClicked(JOYSTICK_BUTTON_NAMES.Left);
+        }
+        const isUpMove = gamepad.axes[1] === -1;
+        if (isUpMove) {
+            this.notifyOnButtonClicked(JOYSTICK_BUTTON_NAMES.Up);
+        }
+        const isDownMove = gamepad.axes[1] === 1;
+        if (isDownMove) {
+            this.notifyOnButtonClicked(JOYSTICK_BUTTON_NAMES.Down);
+        }
+    }
+
+}
+
 
 class Game {
 
@@ -1781,6 +1925,8 @@ class Game {
         debounceMs,
         throttleFireMs,
         throttleKickMs,
+        throttleThrowMs,
+        joyStickThrotleMoveMs,
     }) {
 
         this.canvasWidth = canvasWidth;
@@ -1790,12 +1936,8 @@ class Game {
         this.debounceMs = debounceMs;
         this.throttleFireMs = throttleFireMs;
         this.throttleKickMs = throttleKickMs;
-
-        const body = document.body;
-
-        this.pointSize = Math.floor(parseInt(body.scrollWidth) / this.canvasWidth);
-        this.canvasHeight = Math.floor(parseInt(window.innerHeight) / this.pointSize);
-        this.canvasWidth = Math.floor(parseInt(body.scrollWidth) / this.pointSize);
+        this.throttleThrowMs = throttleThrowMs;
+        this.joyStickThrotleMoveMs = joyStickThrotleMoveMs;
 
         this.selectUserCharacters()
             .then(data => this.startGame(data));
@@ -1815,7 +1957,7 @@ class Game {
                 new Character({
                     name: 'dino',
                     canvasWidth: this.canvasWidth,
-                    height: 5,
+                    height: 8,
                     heightToWidth: 3 / 2,
                     fireImage: 'fire-strawberry.png'
                 }),
@@ -1830,22 +1972,43 @@ class Game {
                     name: 'mario',
                     canvasWidth: this.canvasWidth,
                     height: 4,
-                    heightToWidth: 2 / 3,
+                    heightToWidth: 3 / 2,
                     fireImage: 'fire-tomato.gif'
                 }),
                 new Character({
                     name: 'bowser',
                     canvasWidth: this.canvasWidth,
-                    height: 8,
+                    height: 7,
                     heightToWidth: 1,
-                    fireImage: 'fire-banana.png'
+                    fireImage: 'fire-but.png'
                 }),
                 new Character({
                     name: 'ptero',
                     canvasWidth: this.canvasWidth,
-                    height: 4,
+                    height: 5,
                     heightToWidth: 1 / 2,
                     fireImage: 'fire-strawberry.png'
+                }),
+                new Character({
+                    name: 'sonic',
+                    canvasWidth: this.canvasWidth,
+                    height: 5,
+                    heightToWidth: 3 / 2,
+                    fireImage: 'fire-ring.png'
+                }),
+                new Character({
+                    name: 'luigi',
+                    canvasWidth: this.canvasWidth,
+                    height: 5,
+                    heightToWidth: 3 / 2,
+                    fireImage: 'fire-but.png'
+                }),
+                new Character({
+                    name: 'knuckles',
+                    canvasWidth: this.canvasWidth,
+                    height: 5,
+                    heightToWidth: 3 / 2,
+                    fireImage: 'fire-ring.png'
                 }),
             ];
 
@@ -1861,13 +2024,20 @@ class Game {
         });
     }
 
-    startGame({
+    async startGame({
         user1Character,
         user2Character
     }) {
 
-        this.keyboardListener = new KeyboardListener();
+        await document.getElementById('game').requestFullscreen();
+        const body = document.body;
+
+        this.pointSize = Math.floor(parseInt(body.scrollWidth) / this.canvasWidth);
+        this.canvasHeight = Math.floor(parseInt(window.innerHeight) / this.pointSize);
+        this.canvasWidth = Math.floor(parseInt(body.scrollWidth) / this.pointSize);
+
         this.eventBus = new EventBus();
+        this.commandExecutor = new CommandExecutor();
 
         user1Character.isDirectedRight = true;
         user2Character.isDirectedRight = false;
@@ -1895,6 +2065,7 @@ class Game {
             jumpHeight: this.userJumpHeight,
             jumpStepTime: this.userJumpStepTime,
         });
+        this.user1View = user1View;
 
         const rUser2 = makeReactive({
             model: new User({
@@ -1920,12 +2091,14 @@ class Game {
             jumpStepTime: this.jumpStepTime,
             jumpStepTime: this.userJumpStepTime
         });
+        this.user2View = user2View;
 
         const scoreView = new ScoreView({
             containerId: 'score',
             rUser1,
             rUser2
         });
+        this.scoreView = scoreView;
 
         const gameOverView = new GameOverView({
             containerId: 'game-over',
@@ -1933,6 +2106,7 @@ class Game {
             yOffset: this.canvasHeight / 2 - 5,
             pointSize: this.pointSize
         });
+        this.gameOverView = gameOverView;
 
         const gameView = new GameView({
             containerId: 'game',
@@ -1947,10 +2121,18 @@ class Game {
                 gameOverView
             ]
         });
-
+        this.gameView = gameView;
         gameView.render();
 
-        this.initAudioTheme();
+        this._initAudioTheme();
+        this._eventListeners();
+        this._initKeyboard();
+        this._initJoySticks();
+    }
+
+    _eventListeners() {
+
+        const { commandExecutor, gameView, gameOverView } = this;
 
         this.unSubs.push(
             gameView.subscribeOnInteraction(({
@@ -1960,7 +2142,7 @@ class Game {
             }) => {
                 switch (interactionType) {
                     case INTERACTION_TYPE.Kicked:
-                        this.eventBus.dispatchEvent(GAME_EVENTS.Kicked, {
+                        this.eventBus.dispatchEvent(GAME_EVENTS.UserKicked, {
                             source,
                             target
                         });
@@ -2005,148 +2187,70 @@ class Game {
             })
         );
 
-        const commandExecutor = new CommandExecutor();
+
+        this.eventBus.onEvent(GAME_EVENTS.UserMoveRight, ({ source }) => {
+            commandExecutor.storeAndExecute(
+                new CommandMoveOneTime({
+                    view: source,
+                    isRight: true,
+                    stepTime: 1
+                })
+            );
+        });
+
+        this.eventBus.onEvent(GAME_EVENTS.UserMoveLeft, ({ source }) => {
+            commandExecutor.storeAndExecute(
+                new CommandMoveOneTime({
+                    view: source,
+                    isRight: false,
+                    stepTime: 1
+                })
+            );
+        });
+
+
+        this.eventBus.onEvent(GAME_EVENTS.UserKick, async ({ source }) => {
+            await commandExecutor.storeAndExecute(
+                new CommandKick({
+                    view: source,
+                    commandExecutor
+                })
+            );
+        });
+
+        this.eventBus.onEvent(GAME_EVENTS.UserJump, async ({ source }) => {
+            await commandExecutor.storeAndExecute(
+                new CommandUserJump({
+                    view: source,
+                    commandExecutor
+                })
+            );
+        });
+
+        this.eventBus.onEvent(GAME_EVENTS.UserFire, ({ source }) => {
+            commandExecutor.storeAndExecute(
+                new CommandFire({
+                    view: source,
+                    pointSize: this.pointSize,
+                    commandExecutor,
+                    fireStepTime: this.fireStepTime
+                })
+            );
+        });
+
+        this.eventBus.onEvent(GAME_EVENTS.UserThrow, ({ source }) => {
+            commandExecutor.storeAndExecute(
+                new CommandThrow({
+                    view: source,
+                    pointSize: this.pointSize,
+                    commandExecutor,
+                    stepTime: this.fireStepTime
+                })
+            );
+        });
 
         this.unSubs.push(
-            this.keyboardListener.onPressKeys([KEY_CODES.User1MoveRight, KEY_CODES.User2MoveRight], ({
-                code
-            }) => {
-                const view = code === KEY_CODES.User1MoveRight ?
-                    user1View :
-                    user2View;
-                commandExecutor.storeAndExecute(
-                    new CommandMoveOneTime({
-                        view,
-                        isRight: true,
-                        stepTime: 1
-                    })
-                );
-            })
-        );
-
-        this.unSubs.push(
-            this.keyboardListener.onPressKeys([KEY_CODES.User1MoveLeft, KEY_CODES.User2MoveLeft], ({
-                code
-            }) => {
-                const view = code === KEY_CODES.User1MoveLeft ?
-                    user1View :
-                    user2View;
-                commandExecutor.storeAndExecute(
-                    new CommandMoveOneTime({
-                        view,
-                        isRight: false,
-                        stepTime: 1
-                    })
-                );
-            })
-        );
-
-        this.unSubs.push(
-            this.keyboardListener.onPressKeys([KEY_CODES.User1Jump, KEY_CODES.User2Jump], async ({
-                code
-            }) => {
-                const view = code === KEY_CODES.User1Jump ?
-                    user1View :
-                    user2View;
-                await commandExecutor.storeAndExecute(
-                    new CommandUserJump({
-                        view,
-                        commandExecutor
-                    })
-                );
-            })
-        );
-
-        this.unSubs.push(
-            this.keyboardListener.onPressKeys([KEY_CODES.User1Kick], throttle(async ({
-                code
-            }) => {
-                const view = code === KEY_CODES.User1Kick ?
-                    user1View :
-                    user2View;
-                await commandExecutor.storeAndExecute(
-                    new CommandKick({
-                        view,
-                        commandExecutor
-                    })
-                );
-            }, this.throttleKickMs)
-            )
-        );
-
-        this.unSubs.push(
-            this.keyboardListener.onPressKeys([KEY_CODES.User2Kick], throttle(async ({
-                code
-            }) => {
-                const view = code === KEY_CODES.User1Kick ?
-                    user1View :
-                    user2View;
-                await commandExecutor.storeAndExecute(
-                    new CommandKick({
-                        view,
-                        commandExecutor
-                    })
-                );
-            }, this.throttleKickMs)
-            )
-        );
-
-        this.unSubs.push(
-            this.keyboardListener.onPressKeys([KEY_CODES.User1Fire], throttle(({
-                code
-            }) => {
-                const view = code === KEY_CODES.User1Fire ?
-                    user1View :
-                    user2View;
-                commandExecutor.storeAndExecute(
-                    new CommandFire({
-                        view,
-                        pointSize: this.pointSize,
-                        commandExecutor,
-                        fireStepTime: this.fireStepTime
-                    })
-                );
-            }, this.throttleFireMs))
-        );
-
-        this.unSubs.push(
-            this.keyboardListener.onPressKeys([KEY_CODES.User2Fire], throttle(({
-                code
-            }) => {
-                const view = code === KEY_CODES.User1Fire ?
-                    user1View :
-                    user2View;
-                commandExecutor.storeAndExecute(
-                    new CommandFire({
-                        view,
-                        pointSize: this.pointSize,
-                        commandExecutor,
-                        fireStepTime: this.fireStepTime
-                    })
-                );
-            }, this.throttleFireMs))
-        );
-
-        this.unSubs.push(
-            this.keyboardListener.onPressKeys([KEY_CODES.User1Throw, KEY_CODES.User2Throw], throttle(({
-                code
-            }) => {
-                const view = code === KEY_CODES.User1Throw ?
-                    user1View :
-                    user2View;
-                commandExecutor.storeAndExecute(
-                    new CommandThrow({
-                        view,
-                        pointSize: this.pointSize,
-                        commandExecutor,
-                        stepTime: this.fireStepTime
-                    })
-                );
-            }, 100))
-        );
-
-        this.unSubs.push(
-            this.eventBus.onEvent(GAME_EVENTS.Kicked, ({
+            this.eventBus.onEvent(GAME_EVENTS.UserKicked, ({
                 source,
                 target
             }) => {
@@ -2166,7 +2270,157 @@ class Game {
 
     }
 
-    initAudioTheme() {
+    _initKeyboard() {
+        this.keyboardListener = new KeyboardListener();
+
+        this.unSubs.push(
+            this.keyboardListener.onPressKeys([KEY_CODES.User1MoveRight, KEY_CODES.User2MoveRight], ({
+                code
+            }) => {
+                const view = code === KEY_CODES.User1MoveRight ?
+                    this.user1View :
+                    this.user2View;
+                this.eventBus.dispatchEvent(GAME_EVENTS.UserMoveRight, { source: view });
+            })
+        );
+
+        this.unSubs.push(
+            this.keyboardListener.onPressKeys([KEY_CODES.User1MoveLeft, KEY_CODES.User2MoveLeft], ({
+                code
+            }) => {
+                const view = code === KEY_CODES.User1MoveLeft ?
+                    this.user1View :
+                    this.user2View;
+                this.eventBus.dispatchEvent(GAME_EVENTS.UserMoveLeft, { source: view });
+            })
+        );
+
+        this.unSubs.push(
+            this.keyboardListener.onPressKeys([KEY_CODES.User1Jump, KEY_CODES.User2Jump], async ({
+                code
+            }) => {
+                const view = code === KEY_CODES.User1Jump ?
+                    this.user1View :
+                    this.user2View;
+                this.eventBus.dispatchEvent(GAME_EVENTS.UserJump, { source: view });
+            })
+        );
+
+        this.unSubs.push(
+            this.keyboardListener.onPressKeys([KEY_CODES.User1Kick], throttle(async () => {
+                this.eventBus.dispatchEvent(GAME_EVENTS.UserKick, { source: this.user1View });
+            }, this.throttleKickMs)
+            )
+        );
+
+        this.unSubs.push(
+            this.keyboardListener.onPressKeys([KEY_CODES.User2Kick], throttle(async () => {
+                this.eventBus.dispatchEvent(GAME_EVENTS.UserKick, { source: this.user2View });
+            }, this.throttleKickMs)
+            )
+        );
+
+        this.unSubs.push(
+            this.keyboardListener.onPressKeys([KEY_CODES.User1Fire], throttle(() => {
+                this.eventBus.dispatchEvent(GAME_EVENTS.UserFire, { source: this.user1View });
+            }, this.throttleFireMs))
+        );
+
+        this.unSubs.push(
+            this.keyboardListener.onPressKeys([KEY_CODES.User2Fire], throttle(() => {
+                this.eventBus.dispatchEvent(GAME_EVENTS.UserFire, { source: this.user2View });
+            }, this.throttleFireMs))
+        );
+
+        this.unSubs.push(
+            this.keyboardListener.onPressKeys([KEY_CODES.User1Throw], throttle(() => {
+                this.eventBus.dispatchEvent(GAME_EVENTS.UserThrow, { source: this.user1View });
+            }, this.throttleThrowMs))
+        );
+
+        this.unSubs.push(
+            this.keyboardListener.onPressKeys([KEY_CODES.User2Throw], throttle(() => {
+                this.eventBus.dispatchEvent(GAME_EVENTS.UserThrow, { source: this.user2View });
+            }, this.throttleThrowMs))
+        );
+    }
+
+    _initJoySticks() {
+
+        this.joyStick1 = new JoyStick({ gamepadIndex: 0 });
+        this.joyStick2 = new JoyStick({ gamepadIndex: 1 });
+
+        [this.joyStick1, this.joyStick2].forEach(joyStick => {
+
+            this.unSubs.push(
+                joyStick.subscribeOnButtonClick(JOYSTICK_KEY_CODES.UserMoveRight, throttle(() => {
+                    console.log('UserMoveRight J')
+                    const isUser1 = joyStick === this.joyStick1;
+                    const view = isUser1 ?
+                        this.user1View :
+                        this.user2View;
+                    this.eventBus.dispatchEvent(GAME_EVENTS.UserMoveRight, { source: view });
+                }, this.joyStickThrotleMoveMs))
+            );
+
+            this.unSubs.push(
+                joyStick.subscribeOnButtonClick(JOYSTICK_KEY_CODES.UserMoveLeft, throttle(() => {
+                    const isUser1 = joyStick === this.joyStick1;
+                    const view = isUser1 ?
+                        this.user1View :
+                        this.user2View;
+                    this.eventBus.dispatchEvent(GAME_EVENTS.UserMoveLeft, { source: view });
+                }, this.joyStickThrotleMoveMs))
+            );
+
+            this.unSubs.push(
+                joyStick.subscribeOnButtonClick(JOYSTICK_KEY_CODES.UserJump, throttle(() => {
+                    const isUser1 = joyStick === this.joyStick1;
+                    const view = isUser1 ?
+                        this.user1View :
+                        this.user2View;
+                    this.eventBus.dispatchEvent(GAME_EVENTS.UserJump, { source: view });
+                }, this.joyStickThrotleMoveMs))
+            );
+
+            this.unSubs.push(
+                joyStick.subscribeOnButtonClick(JOYSTICK_KEY_CODES.UserKick, throttle(async () => {
+                    const isUser1 = joyStick === this.joyStick1;
+                    const view = isUser1
+                        ? this.user1View
+                        : this.user2View;
+                    this.eventBus.dispatchEvent(GAME_EVENTS.UserKick, { source: view });
+                }, this.throttleKickMs)
+                )
+            );
+
+            this.unSubs.push(
+                joyStick.subscribeOnButtonClick(JOYSTICK_KEY_CODES.UserFire, throttle(() => {
+                    const isUser1 = joyStick === this.joyStick1;
+                    const view = isUser1 ?
+                        this.user1View :
+                        this.user2View;
+                    this.eventBus.dispatchEvent(GAME_EVENTS.UserFire, { source: view });
+                }, this.throttleFireMs))
+            );
+
+            this.unSubs.push(
+                joyStick.subscribeOnButtonClick(JOYSTICK_KEY_CODES.UserThrow, throttle(() => {
+                    const isUser1 = joyStick === this.joyStick1;
+                    const view = isUser1 ?
+                        this.user1View :
+                        this.user2View;
+                    this.eventBus.dispatchEvent(GAME_EVENTS.UserThrow, { source: view });
+                }, this.throttleThrowMs))
+            );
+
+
+        });
+
+
+    }
+
+    _initAudioTheme() {
         const mainThemeAudioManager = new AudioManager({
             containerId: 'audio-theme'
         });
@@ -2198,4 +2452,6 @@ const game = new Game({
     debounceMs: 5,
     throttleFireMs: 4000,
     throttleKickMs: 1000,
+    throttleThrowMs: 100,
+    joyStickThrotleMoveMs: 100,
 });
