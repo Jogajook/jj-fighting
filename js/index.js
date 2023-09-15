@@ -810,7 +810,6 @@ class UserView {
 
     setPoints(points) {
         this.points = points;
-        console.log('userview', this.model.name, points)
         this.render();
     }
 
@@ -906,7 +905,7 @@ class GameView {
 
     render() {
         const element = document.getElementById(this.containerId);
-        
+
         let rows = [];
         for (let row = this.height - 1; row >= 0; row--) {
             let rowStr = `<div class="row">`;
@@ -1225,7 +1224,6 @@ class KeyboardListener {
         const listener = ({
             code
         }) => {
-            console.log('code', code)
             if (keyCodes.includes(code)) {
                 cb({
                     code
@@ -1865,11 +1863,9 @@ class JoyStick {
     _setPamepad() {
         return new Promise((resolve) => {
             window.addEventListener("gamepadconnected", (e) => {
-                console.log('connected', e);
                 if (e.gamepad.index !== this._gamepadIndex) {
                     return;
                 }
-                console.log('this._gamepad', this._gamepadIndex)
                 resolve();
             });
         });
@@ -1912,6 +1908,31 @@ class JoyStick {
 
 }
 
+class CacheManager {
+
+    constructor() {}
+
+    async cacheAssets({ folderNames }) {
+        
+        const getAssets = name => ([
+            `./assets/characters/${name}/default.png`,
+            `./assets/characters/${name}/kicking.png`,
+            `./assets/characters/${name}/throwing.png`,
+            `./assets/characters/${name}/hitByThrowing.png`
+        ]);
+
+        const commonUrls = ['./assets/kicked.png'];
+
+        const urls = [...commonUrls];
+        folderNames.forEach(name => {
+            urls.push(...getAssets(name));
+        });
+       
+        for await (const url of urls) {
+            await fetch(url);
+        }
+    }
+}
 
 class Game {
 
@@ -2029,7 +2050,17 @@ class Game {
         user2Character
     }) {
 
-        await document.getElementById('game').requestFullscreen();
+        const cacheManager = new CacheManager();
+        await cacheManager.cacheAssets({
+            folderNames: [
+                user1Character.name,
+                user2Character.name
+            ]
+        });
+
+        await document.getElementById('game')
+            .requestFullscreen();
+
         const body = document.body;
 
         this.pointSize = Math.floor(parseInt(body.scrollWidth) / this.canvasWidth);
@@ -2354,7 +2385,6 @@ class Game {
 
             this.unSubs.push(
                 joyStick.subscribeOnButtonClick(JOYSTICK_KEY_CODES.UserMoveRight, throttle(() => {
-                    console.log('UserMoveRight J')
                     const isUser1 = joyStick === this.joyStick1;
                     const view = isUser1 ?
                         this.user1View :
