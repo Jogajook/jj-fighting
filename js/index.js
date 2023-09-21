@@ -1644,9 +1644,9 @@ class CommandFire {
     }
 
     async execute() {
-        if (this.view.model.isJumping || this.view.model.isLanding) {
-            return;
-        }
+        // if (this.view.model.isJumping || this.view.model.isLanding) {
+        //     return;
+        // }
         const points = this.view.getPoints();
         const minY = Math.min(...points.map(item => item.y));
         const yOffset = minY + 2;
@@ -2030,6 +2030,20 @@ class Game {
                     height: 5,
                     heightToWidth: 3 / 2,
                     fireImage: 'fire-ring.png'
+                }),
+                new Character({
+                    name: 'tails',
+                    canvasWidth: this.canvasWidth,
+                    height: 5,
+                    heightToWidth: 3 / 2,
+                    fireImage: 'fire-ring.png'
+                }),
+                new Character({
+                    name: 'mama',
+                    canvasWidth: this.canvasWidth,
+                    height: 8,
+                    heightToWidth: 2,
+                    fireImage: 'fire-but.png'
                 }),
             ];
 
@@ -2478,9 +2492,9 @@ const game = new Game({
     canvasWidth: 40,
     userJumpHeight: 10,
     userJumpStepTime: 100,
-    fireStepTime: 100,
+    fireStepTime: 150,
     debounceMs: 5,
-    throttleFireMs: 4000,
+    throttleFireMs: 2000,
     throttleKickMs: 1000,
     throttleThrowMs: 100,
     joyStickThrotleMoveMs: 100,
